@@ -29,17 +29,20 @@ type JWTAuthenticator struct {
 	key           []byte
 	tokenLifetime int64
 	authenticate  AuthorizationFunction
+	whitelist     map[string]struct{}
 }
 
 // NewJWTAuthenticator constructs a new authenticator middleware using
 // the given secret key, token lifetime in minutes, and AuthorizationFunction.
-func NewJWTAuthenticator(key []byte, tokenLifetime int64, authFunc AuthorizationFunction, handler http.Handler) *JWTAuthenticator {
-	return &JWTAuthenticator{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime}
+func NewJWTAuthenticator(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *JWTAuthenticator {
+	return &JWTAuthenticator{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
 }
 
 func (j *JWTAuthenticator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/authenticate") {
 		j.authenticateUser(w, r)
+	} else if _, ok := j.whitelist[r.URL.Path]; ok {
+		j.handler.ServeHTTP(w, r)
 	} else if j.verifyUser(r) {
 		j.handler.ServeHTTP(w, r)
 	} else {
