@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"time"
 )
+
+type contextKey int
 
 // Credentials is a struct containing the username and password
 // of the user to be authenticated. This data is expected to be
@@ -18,13 +21,22 @@ type Credentials struct {
 	Password string
 }
 
+const usernameContextKey contextKey = 0
+
+// GetUsernameFromContext returns the username associated with
+// the request
+func GetUsernameFromContext(ctx context.Context) (string, bool) {
+	username, ok := ctx.Value(usernameContextKey).(string)
+	return username, ok
+}
+
 // AuthorizationFunction is a function that takes Credentials and
 // returns true if the credentials are valid, false otherwise.
 type AuthorizationFunction func(Credentials) bool
 
-// JWTAuthenticator is a middleware that provides an /authenticate
+// Authenticator is a middleware that provides an /authenticate
 // endpoint that can authenticate a user and generate a JWT token.
-type JWTAuthenticator struct {
+type Authenticator struct {
 	handler       http.Handler
 	key           []byte
 	tokenLifetime int64
@@ -32,30 +44,30 @@ type JWTAuthenticator struct {
 	whitelist     map[string]struct{}
 }
 
-// NewJWTAuthenticator constructs a new authenticator middleware using
+// NewAuthenticator constructs a new authenticator middleware using
 // the given secret key, token lifetime in minutes, and AuthorizationFunction.
-func NewJWTAuthenticator(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *JWTAuthenticator {
-	return &JWTAuthenticator{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
+func NewAuthenticator(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *Authenticator {
+	return &Authenticator{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
 }
 
-func (j *JWTAuthenticator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (j *Authenticator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/authenticate") {
 		j.authenticateUser(w, r)
 	} else if _, ok := j.whitelist[r.URL.Path]; ok {
 		j.handler.ServeHTTP(w, r)
-	} else if j.verifyUser(r) {
-		j.handler.ServeHTTP(w, r)
+	} else if ctx, ok := j.verifyUser(r); ok {
+		j.handler.ServeHTTP(w, r.WithContext(ctx))
 	} else {
 		w.WriteHeader(http.StatusUnauthorized)
 		fmt.Fprint(w, "Invalid credentials")
 	}
 }
 
-func (j *JWTAuthenticator) verifyUser(r *http.Request) bool {
+func (j *Authenticator) verifyUser(r *http.Request) (context.Context, bool) {
 	tokenString := r.Header.Get("Authorization")
 
 	if !strings.HasPrefix(tokenString, "Bearer") {
-		return false
+		return nil, false
 	}
 
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
@@ -68,17 +80,29 @@ func (j *JWTAuthenticator) verifyUser(r *http.Request) bool {
 	})
 
 	if err != nil {
-		return false
+		return nil, false
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		return claims.VerifyExpiresAt(int64(time.Now().Unix()), true)
+	claims, ok := token.Claims.(jwt.MapClaims)
+
+	if !ok || !token.Valid {
+		return nil, false
 	}
 
-	return false
+	if !claims.VerifyExpiresAt(int64(time.Now().Unix()), true) {
+		return nil, false
+	}
+
+	username, ok := claims["username"].(string)
+
+	if !ok {
+		return nil, false
+	}
+
+	return context.WithValue(r.Context(), usernameContextKey, username), true
 }
 
-func (j *JWTAuthenticator) authenticateUser(w http.ResponseWriter, r *http.Request) {
+func (j *Authenticator) authenticateUser(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var credentials Credentials
 	err := decoder.Decode(&credentials)
