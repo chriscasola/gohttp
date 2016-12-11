@@ -1,4 +1,4 @@
-package httputil
+package gohttp
 
 import (
 	"encoding/json"
