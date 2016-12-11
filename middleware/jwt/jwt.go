@@ -34,9 +34,9 @@ func GetUsernameFromContext(ctx context.Context) (string, bool) {
 // returns true if the credentials are valid, false otherwise.
 type AuthorizationFunction func(Credentials) bool
 
-// Authenticator is a middleware that provides an /authenticate
+// Middleware is a middleware that provides an /authenticate
 // endpoint that can authenticate a user and generate a JWT token.
-type Authenticator struct {
+type Middleware struct {
 	handler       http.Handler
 	key           []byte
 	tokenLifetime int64
@@ -44,13 +44,13 @@ type Authenticator struct {
 	whitelist     map[string]struct{}
 }
 
-// NewAuthenticator constructs a new authenticator middleware using
+// New constructs a new authenticator middleware using
 // the given secret key, token lifetime in minutes, and AuthorizationFunction.
-func NewAuthenticator(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *Authenticator {
-	return &Authenticator{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
+func New(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *Middleware {
+	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
 }
 
-func (j *Authenticator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (j *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/authenticate") {
 		j.authenticateUser(w, r)
 	} else if _, ok := j.whitelist[r.URL.Path]; ok {
@@ -63,7 +63,7 @@ func (j *Authenticator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (j *Authenticator) verifyUser(r *http.Request) (context.Context, bool) {
+func (j *Middleware) verifyUser(r *http.Request) (context.Context, bool) {
 	tokenString := r.Header.Get("Authorization")
 
 	if !strings.HasPrefix(tokenString, "Bearer") {
@@ -102,7 +102,7 @@ func (j *Authenticator) verifyUser(r *http.Request) (context.Context, bool) {
 	return context.WithValue(r.Context(), usernameContextKey, username), true
 }
 
-func (j *Authenticator) authenticateUser(w http.ResponseWriter, r *http.Request) {
+func (j *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var credentials Credentials
 	err := decoder.Decode(&credentials)

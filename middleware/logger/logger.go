@@ -27,8 +27,8 @@ type Middleware struct {
 	handler http.Handler
 }
 
-// NewMiddleware construct a new request ID middleware
-func NewMiddleware(handler http.Handler) *Middleware {
+// New construct a new request ID middleware
+func New(handler http.Handler) *Middleware {
 	return &Middleware{handler: handler}
 }
 
