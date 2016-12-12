@@ -3,7 +3,6 @@ package gohttp
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 )
 
@@ -15,10 +14,6 @@ func SendJSON(w http.ResponseWriter, statusCode int, body interface{}) error {
 
 	encoder := json.NewEncoder(w)
 	err := encoder.Encode(body)
-
-	if err != nil {
-		log.Printf("Error sending response: %v", err)
-	}
 
 	return err
 }
@@ -35,5 +30,4 @@ func ReadJSON(r *http.Request, dest interface{}) error {
 func SendErrorResponse(w http.ResponseWriter, statusCode int, message string, err error) {
 	w.WriteHeader(statusCode)
 	fmt.Fprint(w, message)
-	log.Printf("%v error=%v", message, err)
 }
