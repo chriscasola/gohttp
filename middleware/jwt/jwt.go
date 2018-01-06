@@ -1,138 +1,82 @@
 package jwt
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"net/http"
-	"strings"
 	"time"
+
+	"github.com/dgrijalva/jwt-go"
 )
 
-type contextKey int
+// GenerateToken generates a JWT for the given username
+func GenerateToken(username string, client string, key []byte, tokenType string, ttl int64) (string, error) {
+	claims := jwt.MapClaims{}
+	claims["username"] = username
+	claims["client"] = client
+	claims["token_type"] = tokenType
 
-// Credentials is a struct containing the username and password
-// of the user to be authenticated. This data is expected to be
-// in the body of the POST request to the /authenticate endpoint
-// in JSON form.
-type Credentials struct {
-	Username string
-	Password string
-}
-
-const usernameContextKey contextKey = 0
-
-// GetUsernameFromContext returns the username associated with
-// the request
-func GetUsernameFromContext(ctx context.Context) (string, bool) {
-	username, ok := ctx.Value(usernameContextKey).(string)
-	return username, ok
-}
-
-// AuthorizationFunction is a function that takes Credentials and
-// returns true if the credentials are valid, false otherwise.
-type AuthorizationFunction func(Credentials) bool
-
-// Middleware is a middleware that provides an /authenticate
-// endpoint that can authenticate a user and generate a JWT token.
-type Middleware struct {
-	handler       http.Handler
-	key           []byte
-	tokenLifetime int64
-	authenticate  AuthorizationFunction
-	whitelist     map[string]struct{}
-}
-
-// New constructs a new authenticator middleware using
-// the given secret key, token lifetime in minutes, and AuthorizationFunction.
-func New(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, handler http.Handler) *Middleware {
-	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist}
-}
-
-func (j *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/authenticate") {
-		j.authenticateUser(w, r)
-	} else if _, ok := j.whitelist[r.URL.Path]; ok {
-		j.handler.ServeHTTP(w, r)
-	} else if ctx, ok := j.verifyUser(r); ok {
-		j.handler.ServeHTTP(w, r.WithContext(ctx))
-	} else {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, "Invalid credentials")
-	}
-}
-
-func (j *Middleware) verifyUser(r *http.Request) (context.Context, bool) {
-	tokenString := r.Header.Get("Authorization")
-
-	if !strings.HasPrefix(tokenString, "Bearer") {
-		return nil, false
+	if ttl != 0 {
+		claims["exp"] = ttl
 	}
 
-	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	tokenString, err := token.SignedString(key)
+
+	return tokenString, err
+}
+
+// GetUserFromToken extracts the "username" field from the given JWT and returns it if the
+// JWT is valid
+func GetUserFromToken(token string, claimedClient string, key []byte, verifyExpires bool, expectedTokenType string) (string, error) {
+	parser := jwt.Parser{SkipClaimsValidation: !verifyExpires}
+
+	parsedToken, err := parser.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
-		return j.key, nil
+		return key, nil
 	})
 
 	if err != nil {
-		return nil, false
+		return "", err
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
+	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 
-	if !ok || !token.Valid {
-		return nil, false
+	if !ok || !parsedToken.Valid {
+		return "", errors.New("Unable to parse JWT")
 	}
 
-	if !claims.VerifyExpiresAt(int64(time.Now().Unix()), true) {
-		return nil, false
+	if verifyExpires && !claims.VerifyExpiresAt(int64(time.Now().Unix()), true) {
+		return "", errors.New("JWT is expired")
 	}
 
 	username, ok := claims["username"].(string)
 
 	if !ok {
-		return nil, false
+		return "", errors.New("Username not present in JWT")
 	}
 
-	return context.WithValue(r.Context(), usernameContextKey, username), true
-}
+	actualClient, ok := claims["client"].(string)
 
-func (j *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	var credentials Credentials
-	err := decoder.Decode(&credentials)
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, "Malformed credentials")
-		return
+	if !ok {
+		return "", errors.New("Client not present in JWT")
 	}
 
-	if !j.authenticate(credentials) {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, "Invalid credentials")
-		return
+	tokenType, ok := claims["token_type"].(string)
+
+	if !ok {
+		return "", errors.New("Token type not present in JWT")
 	}
 
-	claims := jwt.MapClaims{}
-	claims["username"] = credentials.Username
-	claims["exp"] = int64(time.Now().Unix() + (60 * j.tokenLifetime))
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	tokenString, err := token.SignedString(j.key)
-
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Error signing JWT: %v", err)
-		return
+	if tokenType != expectedTokenType {
+		return "", fmt.Errorf("This JWT is not an %v", expectedTokenType)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(tokenString))
+	if actualClient != claimedClient {
+		return "", errors.New("Client in JWT does not match claimed client")
+	}
+
+	return username, nil
 }
