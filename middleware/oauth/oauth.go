@@ -178,7 +178,12 @@ func (m *Middleware) oauthExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	queryArgs := r.URL.Query()
+	if err := r.ParseForm(); err != nil {
+		sendOauthError(w)
+		return
+	}
+
+	queryArgs := r.PostForm
 	clientID, clientSecret, grantType := queryArgs.Get("client_id"), queryArgs.Get("client_secret"), queryArgs.Get("grant_type")
 
 	if !m.verifyClient(clientID, clientSecret) {
