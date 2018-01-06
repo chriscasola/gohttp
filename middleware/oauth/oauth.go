@@ -93,7 +93,7 @@ func (m *Middleware) verifyUser(r *http.Request) (context.Context, bool) {
 
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
-	username, err := jwt.GetUserFromToken(tokenString, "", m.key, true, "")
+	username, err := jwt.GetUserFromToken(tokenString, "", m.key, true, "access")
 
 	if err != nil {
 		return nil, false
@@ -124,7 +124,7 @@ func (m *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenString, err := jwt.GenerateToken(credentials.Username, "", m.key, "", int64(time.Now().Unix()+(60*m.tokenLifetime)))
+	tokenString, err := jwt.GenerateToken(credentials.Username, "", m.key, "access", int64(time.Now().Unix()+(60*m.tokenLifetime)))
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -237,7 +237,7 @@ func generateAccessTokenFromRefreshToken(refreshToken string, claimedClient stri
 		return "", 0, err
 	}
 
-	return generateAccessToken(username, claimedClient, key)
+	return generateAccessToken(username, key)
 }
 
 func generateRefreshTokenFromAuthorizationToken(authorizationToken, claimedClient string, key []byte) (string, error) {
@@ -249,10 +249,10 @@ func generateRefreshTokenFromAuthorizationToken(authorizationToken, claimedClien
 	return generateRefreshToken(username, claimedClient, key)
 }
 
-func generateAccessToken(username string, client string, key []byte) (string, int64, error) {
+func generateAccessToken(username string, key []byte) (string, int64, error) {
 	lifetime := int64(60 * 60) // 1 hour
 	expTime := int64(time.Now().Unix()) + lifetime
-	token, err := jwt.GenerateToken(username, client, key, "access", expTime)
+	token, err := jwt.GenerateToken(username, "", key, "access", expTime)
 	return token, expTime, err
 }
 
