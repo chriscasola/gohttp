@@ -59,12 +59,38 @@ type Middleware struct {
 	authenticate  AuthorizationFunction
 	whitelist     map[string]struct{}
 	verifyClient  ClientVerificationFunction
+	useCookies    bool
+}
+
+// MiddlewareOptions defines the options that may be used to configure the
+// Middleware
+type MiddlewareOptions struct {
+	Key           []byte
+	TokenLifetime int64
+	Whitelist     map[string]struct{}
+	AuthFunc      AuthorizationFunction
+	VerifyClient  ClientVerificationFunction
+	UseCookies    bool
 }
 
 // New constructs a new authenticator middleware using
 // the given secret key, token lifetime in minutes, and AuthorizationFunction.
 func New(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, verifyClient ClientVerificationFunction, handler http.Handler) *Middleware {
-	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist, verifyClient: verifyClient}
+	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist, verifyClient: verifyClient, useCookies: false}
+}
+
+// NewWithOptions constructs a new authenticator middleware
+// using the options provided
+func NewWithOptions(options *MiddlewareOptions, handler http.Handler) *Middleware {
+	return &Middleware{
+		handler:       handler,
+		key:           options.Key,
+		authenticate:  options.AuthFunc,
+		tokenLifetime: options.TokenLifetime,
+		whitelist:     options.Whitelist,
+		verifyClient:  options.VerifyClient,
+		useCookies:    options.UseCookies,
+	}
 }
 
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +112,12 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (m *Middleware) verifyUser(r *http.Request) (context.Context, bool) {
 	tokenString := r.Header.Get("Authorization")
+
+	if tokenString == "" && m.useCookies {
+		if c, err := r.Cookie("access_token"); err == nil {
+			tokenString = "Bearer " + c.Value
+		}
+	}
 
 	if !strings.HasPrefix(tokenString, "Bearer") {
 		return nil, false
@@ -130,6 +162,16 @@ func (m *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Error signing JWT: %v", err)
 		return
+	}
+
+	if m.useCookies {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "access_token",
+			Value:    tokenString,
+			MaxAge:   int(m.tokenLifetime * 60),
+			Secure:   true,
+			HttpOnly: false,
+		})
 	}
 
 	w.WriteHeader(http.StatusOK)
