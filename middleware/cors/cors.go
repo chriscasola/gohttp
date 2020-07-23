@@ -15,15 +15,15 @@ func New(handler http.Handler) *Middleware {
 }
 
 func (c *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Expose-Headers", "Set-Cookie")
+
+	if _, ok := r.Header["Access-Control-Request-Method"]; r.Method == http.MethodOptions && ok {
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, OPTIONS, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
 		w.Header().Set("Access-Control-Max-Age", "86400")
-		w.Header().Set("Access-Control-Expose-Headers", "Set-Cookie")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	} else {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		c.handler.ServeHTTP(w, r)
 	}
 }
