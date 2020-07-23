@@ -60,23 +60,25 @@ type Middleware struct {
 	whitelist     map[string]struct{}
 	verifyClient  ClientVerificationFunction
 	useCookies    bool
+	secureCookies bool
 }
 
 // MiddlewareOptions defines the options that may be used to configure the
 // Middleware
 type MiddlewareOptions struct {
-	Key           []byte
-	TokenLifetime int64
-	Whitelist     map[string]struct{}
-	AuthFunc      AuthorizationFunction
-	VerifyClient  ClientVerificationFunction
-	UseCookies    bool
+	Key                  []byte
+	TokenLifetime        int64
+	Whitelist            map[string]struct{}
+	AuthFunc             AuthorizationFunction
+	VerifyClient         ClientVerificationFunction
+	UseCookies           bool
+	DisableSecureCookies bool
 }
 
 // New constructs a new authenticator middleware using
 // the given secret key, token lifetime in minutes, and AuthorizationFunction.
 func New(key []byte, tokenLifetime int64, whitelist map[string]struct{}, authFunc AuthorizationFunction, verifyClient ClientVerificationFunction, handler http.Handler) *Middleware {
-	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist, verifyClient: verifyClient, useCookies: false}
+	return &Middleware{handler: handler, key: key, authenticate: authFunc, tokenLifetime: tokenLifetime, whitelist: whitelist, verifyClient: verifyClient, useCookies: false, secureCookies: true}
 }
 
 // NewWithOptions constructs a new authenticator middleware
@@ -90,6 +92,7 @@ func NewWithOptions(options *MiddlewareOptions, handler http.Handler) *Middlewar
 		whitelist:     options.Whitelist,
 		verifyClient:  options.VerifyClient,
 		useCookies:    options.UseCookies,
+		secureCookies: !options.DisableSecureCookies,
 	}
 }
 
@@ -169,7 +172,7 @@ func (m *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
 			Name:     "access_token",
 			Value:    tokenString,
 			MaxAge:   int(m.tokenLifetime * 60),
-			Secure:   true,
+			Secure:   m.secureCookies,
 			HttpOnly: false,
 		})
 	}
