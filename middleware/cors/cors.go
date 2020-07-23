@@ -20,6 +20,7 @@ func (c *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, OPTIONS, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
 		w.Header().Set("Access-Control-Max-Age", "86400")
+		w.Header().Set("Access-Control-Expose-Headers", "Set-Cookie")
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
