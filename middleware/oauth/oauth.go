@@ -174,6 +174,7 @@ func (m *Middleware) authenticateUser(w http.ResponseWriter, r *http.Request) {
 			MaxAge:   int(m.tokenLifetime * 60),
 			Secure:   m.secureCookies,
 			HttpOnly: true,
+			Path:     "/",
 		})
 	}
 
